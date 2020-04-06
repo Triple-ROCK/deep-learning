@@ -1,6 +1,6 @@
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
-from copy import copy
 
 
 def readData(images_file, labels_file):
@@ -55,7 +55,7 @@ def forward_prop(data, labels, params):
     return ret
 
 
-def backward_prop(data, labels, params):
+def backward_prop(data, labels, params, _lambda = 0):
     """
     return gradient of parameters
     """
@@ -70,8 +70,8 @@ def backward_prop(data, labels, params):
     m = data.shape[1]
     delta2 = -(labels - a2)
     delta1 = W2.T @ delta2 * a1 * (1 - a1)
-    gradW2 = delta2 @ a1.T / m
-    gradW1 = delta1 @ data.T / m
+    gradW2 = delta2 @ a1.T / m + 2*_lambda*W2
+    gradW1 = delta1 @ data.T / m + 2*_lambda*W1
     gradb2 = np.sum(delta2, axis=1, keepdims=True) / m
     gradb1 = np.sum(delta1, axis=1, keepdims=True) / m
     # END YOUR CODE
@@ -103,28 +103,47 @@ def nn_train(trainData, trainLabels, devData, devLabels):
     (n, m) = trainData.shape  # n: demension of each example,  m: number of examples
     num_hidden = 300
     learning_rate = 5
+    _lambda = 1e-4  # weight recay factor
     num_epoch = 30
     B = 1000
 
     # YOUR CODE HERE
     layer_sizes = (n, num_hidden, 10)
     params = init_weight(layer_sizes)
-    cost = np.zeros(num_epoch)
+    with open('params_with_regularization.pkl', 'rb') as fp:
+        params = pickle.load(fp)
+    cost = np.zeros(num_epoch) # cost in training set
+    accuracy = np.zeros(num_epoch) # accuracy in training set
+    dev_cost = np.zeros(num_epoch)
+    dev_accuracy = np.zeros(num_epoch)
+    
     for epoch in range(num_epoch):
         for i in range(m // B):
             X = trainData[:, i * B:(i + 1) * B]
             y = trainLabels[:, i * B:(i + 1) * B]
             fprop_cache = forward_prop(X, y, params)
-            grad = backward_prop(X, y, fprop_cache)
+            grad = backward_prop(X, y, fprop_cache, _lambda)
             params['W1'] -= learning_rate * grad['W1']
             params['W2'] -= learning_rate * grad['W2']
             params['b1'] -= learning_rate * grad['b1']
-            params['b2'] -= learning_rate * grad['b2']
-        cost[epoch] = forward_prop(trainData, trainLabels, params)['cost']
-        print('epoch: {}   cost: {}\n'.format(epoch, cost[epoch]))
+            params['b2'] -= learning_rate * grad['b2']   
+        # compute cost function and accuracy on tranning and dev set
+        cache = forward_prop(trainData, trainLabels, params)
+        dev_cache = forward_prop(devData, devLabels, params)
+        cost[epoch], accuracy[epoch] = cache['cost'], compute_accuracy(cache['a2'], trainLabels)
+        dev_cost[epoch], dev_accuracy[epoch] = dev_cache['cost'], compute_accuracy(dev_cache['a2'], devLabels)
+        print('epoch: {}   cost: {}\n'.format(epoch+1, cost[epoch]))
+        
+    # plot loss function versus epochs
+    plt.plot(cost, label = 'training cost'), plt.plot(dev_cost, label = 'dev cost')
+    plt.xlabel('epochs'), plt.ylabel('cost'), plt.legend()
+    plt.figure()
+    plt.plot(accuracy, label = 'training accuracy'), plt.plot(dev_accuracy, label = 'dev accuracy')
+    plt.xlabel('epochs'), plt.ylabel('accuracy'), plt.legend()
+    
     # END YOUR CODE
 
-    return params, cost
+    return params
 
 
 def nn_test(data, labels, params):
@@ -173,9 +192,10 @@ def main():
     testData = testData.T
     testData = (testData - mean) / std
 
-    params, cost = nn_train(trainData, trainLabels, devData, devLabels)
-    plt.plot(cost)
-
+    params = nn_train(trainData, trainLabels, devData, devLabels)
+    with open('params_with_regularization.pkl', 'wb') as fp:
+        pickle.dump(params, fp)
+    
     readyForTesting = True
     if readyForTesting:
         accuracy = nn_test(testData, testLabels, params)
